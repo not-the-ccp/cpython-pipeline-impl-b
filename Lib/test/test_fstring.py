@@ -1705,7 +1705,7 @@ except Exception:
     def test_invalid_syntax_error_message(self):
         with self.assertRaisesRegex(SyntaxError,
                                     "f-string: expecting '=', or '!', or ':', or '}'"):
-            compile("f'{a $ b}'", "?", "exec")
+            compile("f'{a +}'", "?", "exec")
 
     def test_with_two_commas_in_format_specifier(self):
         error_msg = re.escape("Cannot specify ',' with ','.")
