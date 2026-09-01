@@ -706,9 +706,17 @@ expressions[expr_ty]:
 expression[expr_ty] (memo):
     | invalid_expression
     | invalid_legacy_expression
-    | a=disjunction 'if' b=disjunction 'else' c=expression { _PyAST_IfExp(b, a, c, EXTRA) }
-    | disjunction
+    | a=pipeline 'if' b=disjunction 'else' c=expression {
+          _PyAST_IfExp(b, a, c, EXTRA)
+      }
+    | pipeline
     | lambdef
+
+pipeline[expr_ty]:
+    | a=pipeline '|>' b=disjunction {
+          _PyAST_Pipeline(a, b, EXTRA)
+      }
+    | disjunction
 
 yield_expr[expr_ty]:
     | 'yield' 'from' a=expression { _PyAST_YieldFrom(a, EXTRA) }
@@ -881,6 +889,7 @@ atom[expr_ty]:
     | &'[' (list | listcomp)
     | &'{' (dict | set | dictcomp | setcomp)
     | '...' { _PyAST_Constant(Py_Ellipsis, NULL, EXTRA) }
+    | '$' { _PyAST_PipeTopic(EXTRA) }
 
 group[expr_ty]:
     | '(' a=(yield_expr | named_expression) ')' { a }

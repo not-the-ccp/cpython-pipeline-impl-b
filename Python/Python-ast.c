@@ -140,6 +140,8 @@ void _PyAST_Fini(PyInterpreterState *interp)
     Py_CLEAR(state->Or_type);
     Py_CLEAR(state->ParamSpec_type);
     Py_CLEAR(state->Pass_type);
+    Py_CLEAR(state->PipeTopic_type);
+    Py_CLEAR(state->Pipeline_type);
     Py_CLEAR(state->Pow_singleton);
     Py_CLEAR(state->Pow_type);
     Py_CLEAR(state->RShift_singleton);
@@ -574,6 +576,10 @@ static const char * const IfExp_fields[]={
     "test",
     "body",
     "orelse",
+};
+static const char * const Pipeline_fields[]={
+    "value",
+    "body",
 };
 static const char * const Dict_fields[]={
     "keys",
@@ -2693,6 +2699,56 @@ add_ast_annotations(struct ast_state *state)
         return 0;
     }
     Py_DECREF(IfExp_annotations);
+    PyObject *Pipeline_annotations = PyDict_New();
+    if (!Pipeline_annotations) return 0;
+    {
+        PyObject *type = state->expr_type;
+        Py_INCREF(type);
+        cond = PyDict_SetItemString(Pipeline_annotations, "value", type) == 0;
+        Py_DECREF(type);
+        if (!cond) {
+            Py_DECREF(Pipeline_annotations);
+            return 0;
+        }
+    }
+    {
+        PyObject *type = state->expr_type;
+        Py_INCREF(type);
+        cond = PyDict_SetItemString(Pipeline_annotations, "body", type) == 0;
+        Py_DECREF(type);
+        if (!cond) {
+            Py_DECREF(Pipeline_annotations);
+            return 0;
+        }
+    }
+    cond = PyObject_SetAttrString(state->Pipeline_type, "_field_types",
+                                  Pipeline_annotations) == 0;
+    if (!cond) {
+        Py_DECREF(Pipeline_annotations);
+        return 0;
+    }
+    cond = PyObject_SetAttrString(state->Pipeline_type, "__annotations__",
+                                  Pipeline_annotations) == 0;
+    if (!cond) {
+        Py_DECREF(Pipeline_annotations);
+        return 0;
+    }
+    Py_DECREF(Pipeline_annotations);
+    PyObject *PipeTopic_annotations = PyDict_New();
+    if (!PipeTopic_annotations) return 0;
+    cond = PyObject_SetAttrString(state->PipeTopic_type, "_field_types",
+                                  PipeTopic_annotations) == 0;
+    if (!cond) {
+        Py_DECREF(PipeTopic_annotations);
+        return 0;
+    }
+    cond = PyObject_SetAttrString(state->PipeTopic_type, "__annotations__",
+                                  PipeTopic_annotations) == 0;
+    if (!cond) {
+        Py_DECREF(PipeTopic_annotations);
+        return 0;
+    }
+    Py_DECREF(PipeTopic_annotations);
     PyObject *Dict_annotations = PyDict_New();
     if (!Dict_annotations) return 0;
     {
@@ -6388,6 +6444,8 @@ init_types(void *arg)
         "     | UnaryOp(unaryop op, expr operand)\n"
         "     | Lambda(arguments args, expr body)\n"
         "     | IfExp(expr test, expr body, expr orelse)\n"
+        "     | Pipeline(expr value, expr body)\n"
+        "     | PipeTopic\n"
         "     | Dict(expr?* keys, expr* values)\n"
         "     | Set(expr* elts)\n"
         "     | ListComp(expr elt, comprehension* generators)\n"
@@ -6443,6 +6501,14 @@ init_types(void *arg)
                                   IfExp_fields, 3,
         "IfExp(expr test, expr body, expr orelse)");
     if (!state->IfExp_type) return -1;
+    state->Pipeline_type = make_type(state, "Pipeline", state->expr_type,
+                                     Pipeline_fields, 2,
+        "Pipeline(expr value, expr body)");
+    if (!state->Pipeline_type) return -1;
+    state->PipeTopic_type = make_type(state, "PipeTopic", state->expr_type,
+                                      NULL, 0,
+        "PipeTopic");
+    if (!state->PipeTopic_type) return -1;
     state->Dict_type = make_type(state, "Dict", state->expr_type, Dict_fields,
                                  2,
         "Dict(expr?* keys, expr* values)");
@@ -7906,6 +7972,50 @@ _PyAST_IfExp(expr_ty test, expr_ty body, expr_ty orelse, int lineno, int
     p->v.IfExp.test = test;
     p->v.IfExp.body = body;
     p->v.IfExp.orelse = orelse;
+    p->lineno = lineno;
+    p->col_offset = col_offset;
+    p->end_lineno = end_lineno;
+    p->end_col_offset = end_col_offset;
+    return p;
+}
+
+expr_ty
+_PyAST_Pipeline(expr_ty value, expr_ty body, int lineno, int col_offset, int
+                end_lineno, int end_col_offset, PyArena *arena)
+{
+    expr_ty p;
+    if (!value) {
+        PyErr_SetString(PyExc_ValueError,
+                        "field 'value' is required for Pipeline");
+        return NULL;
+    }
+    if (!body) {
+        PyErr_SetString(PyExc_ValueError,
+                        "field 'body' is required for Pipeline");
+        return NULL;
+    }
+    p = (expr_ty)_PyArena_Malloc(arena, sizeof(*p));
+    if (!p)
+        return NULL;
+    p->kind = Pipeline_kind;
+    p->v.Pipeline.value = value;
+    p->v.Pipeline.body = body;
+    p->lineno = lineno;
+    p->col_offset = col_offset;
+    p->end_lineno = end_lineno;
+    p->end_col_offset = end_col_offset;
+    return p;
+}
+
+expr_ty
+_PyAST_PipeTopic(int lineno, int col_offset, int end_lineno, int
+                 end_col_offset, PyArena *arena)
+{
+    expr_ty p;
+    p = (expr_ty)_PyArena_Malloc(arena, sizeof(*p));
+    if (!p)
+        return NULL;
+    p->kind = PipeTopic_kind;
     p->lineno = lineno;
     p->col_offset = col_offset;
     p->end_lineno = end_lineno;
@@ -9677,6 +9787,26 @@ ast2obj_expr(struct ast_state *state, void* _o)
         if (PyObject_SetAttr(result, state->orelse, value) == -1)
             goto failed;
         Py_DECREF(value);
+        break;
+    case Pipeline_kind:
+        tp = (PyTypeObject *)state->Pipeline_type;
+        result = PyType_GenericNew(tp, NULL, NULL);
+        if (!result) goto failed;
+        value = ast2obj_expr(state, o->v.Pipeline.value);
+        if (!value) goto failed;
+        if (PyObject_SetAttr(result, state->value, value) == -1)
+            goto failed;
+        Py_DECREF(value);
+        value = ast2obj_expr(state, o->v.Pipeline.body);
+        if (!value) goto failed;
+        if (PyObject_SetAttr(result, state->body, value) == -1)
+            goto failed;
+        Py_DECREF(value);
+        break;
+    case PipeTopic_kind:
+        tp = (PyTypeObject *)state->PipeTopic_type;
+        result = PyType_GenericNew(tp, NULL, NULL);
+        if (!result) goto failed;
         break;
     case Dict_kind:
         tp = (PyTypeObject *)state->Dict_type;
@@ -14217,6 +14347,66 @@ obj2ast_expr(struct ast_state *state, PyObject* obj, expr_ty* out, PyArena*
         if (*out == NULL) goto failed;
         return 0;
     }
+    tp = state->Pipeline_type;
+    isinstance = PyObject_IsInstance(obj, tp);
+    if (isinstance == -1) {
+        return -1;
+    }
+    if (isinstance) {
+        expr_ty value;
+        expr_ty body;
+
+        if (PyObject_GetOptionalAttr(obj, state->value, &tmp) < 0) {
+            return -1;
+        }
+        if (tmp == NULL) {
+            PyErr_SetString(PyExc_TypeError, "required field \"value\" missing from Pipeline");
+            return -1;
+        }
+        else {
+            int res;
+            if (_Py_EnterRecursiveCall(" while traversing 'Pipeline' node")) {
+                goto failed;
+            }
+            res = obj2ast_expr(state, tmp, &value, arena);
+            _Py_LeaveRecursiveCall();
+            if (res != 0) goto failed;
+            Py_CLEAR(tmp);
+        }
+        if (PyObject_GetOptionalAttr(obj, state->body, &tmp) < 0) {
+            return -1;
+        }
+        if (tmp == NULL) {
+            PyErr_SetString(PyExc_TypeError, "required field \"body\" missing from Pipeline");
+            return -1;
+        }
+        else {
+            int res;
+            if (_Py_EnterRecursiveCall(" while traversing 'Pipeline' node")) {
+                goto failed;
+            }
+            res = obj2ast_expr(state, tmp, &body, arena);
+            _Py_LeaveRecursiveCall();
+            if (res != 0) goto failed;
+            Py_CLEAR(tmp);
+        }
+        *out = _PyAST_Pipeline(value, body, lineno, col_offset, end_lineno,
+                               end_col_offset, arena);
+        if (*out == NULL) goto failed;
+        return 0;
+    }
+    tp = state->PipeTopic_type;
+    isinstance = PyObject_IsInstance(obj, tp);
+    if (isinstance == -1) {
+        return -1;
+    }
+    if (isinstance) {
+
+        *out = _PyAST_PipeTopic(lineno, col_offset, end_lineno, end_col_offset,
+                                arena);
+        if (*out == NULL) goto failed;
+        return 0;
+    }
     tp = state->Dict_type;
     isinstance = PyObject_IsInstance(obj, tp);
     if (isinstance == -1) {
@@ -18122,6 +18312,12 @@ astmodule_exec(PyObject *m)
         return -1;
     }
     if (PyModule_AddObjectRef(m, "IfExp", state->IfExp_type) < 0) {
+        return -1;
+    }
+    if (PyModule_AddObjectRef(m, "Pipeline", state->Pipeline_type) < 0) {
+        return -1;
+    }
+    if (PyModule_AddObjectRef(m, "PipeTopic", state->PipeTopic_type) < 0) {
         return -1;
     }
     if (PyModule_AddObjectRef(m, "Dict", state->Dict_type) < 0) {

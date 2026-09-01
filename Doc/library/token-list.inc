@@ -102,3 +102,7 @@
      - ``":="``
    * - .. data:: EXCLAMATION
      - ``"!"``
+   * - .. data:: VBARGREATER
+     - ``"|>"``
+   * - .. data:: DOLLAR
+     - ``"$"``

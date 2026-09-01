@@ -59,6 +59,8 @@ RARROW                  '->'
 ELLIPSIS                '...'
 COLONEQUAL              ':='
 EXCLAMATION             '!'
+VBARGREATER             '|>'
+DOLLAR                  '$'
 
 OP
 TYPE_IGNORE
