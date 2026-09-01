@@ -83,6 +83,12 @@ struct symtable {
     PyObject *st_private;           /* name of current class or NULL */
     _PyFutureFeatures *st_future;   /* module's future features that affect
                                        the symbol table */
+    PyObject *st_pipeline_topics;   /* list: stack of active pipeline
+                                     *       topic names */
+    PyObject *st_pipeline_names;    /* dict: map Pipeline AST node
+                                     *       addresses to hidden topic names */
+    Py_ssize_t st_next_pipeline_topic; /* serial number for the next
+                                     *       generated hidden topic name */
 };
 
 typedef struct _symtable_entry {
@@ -147,6 +153,7 @@ extern struct symtable* _PySymtable_Build(
     _PyFutureFeatures *future);
 extern PySTEntryObject* _PySymtable_Lookup(struct symtable *, void *);
 extern int _PySymtable_LookupOptional(struct symtable *, void *, PySTEntryObject **);
+extern PyObject *_PySymtable_GetPipelineTopicName(struct symtable *, void *);
 
 extern void _PySymtable_Free(struct symtable *);
 

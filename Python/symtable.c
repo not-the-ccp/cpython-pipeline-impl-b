@@ -396,10 +396,17 @@ symtable_new(void)
 
     st->st_filename = NULL;
     st->st_blocks = NULL;
+    st->st_pipeline_topics = NULL;
+    st->st_pipeline_names = NULL;
+    st->st_next_pipeline_topic = 0;
 
     if ((st->st_stack = PyList_New(0)) == NULL)
         goto fail;
     if ((st->st_blocks = PyDict_New()) == NULL)
+        goto fail;
+    if ((st->st_pipeline_topics = PyList_New(0)) == NULL)
+        goto fail;
+    if ((st->st_pipeline_names = PyDict_New()) == NULL)
         goto fail;
     st->st_cur = NULL;
     st->st_private = NULL;
@@ -495,7 +502,30 @@ _PySymtable_Free(struct symtable *st)
     Py_XDECREF(st->st_filename);
     Py_XDECREF(st->st_blocks);
     Py_XDECREF(st->st_stack);
+    Py_XDECREF(st->st_pipeline_topics);
+    Py_XDECREF(st->st_pipeline_names);
     PyMem_Free((void *)st);
+}
+
+/* Return the hidden topic name assigned to the given Pipeline AST node,
+   or NULL with an error set.  The caller owns the returned reference. */
+PyObject *
+_PySymtable_GetPipelineTopicName(struct symtable *st, void *pipeline_node)
+{
+    PyObject *k = PyLong_FromVoidPtr(pipeline_node);
+    if (k == NULL) {
+        return NULL;
+    }
+    PyObject *name = PyDict_GetItemWithError(st->st_pipeline_names, k);
+    Py_DECREF(k);
+    if (name == NULL) {
+        if (!PyErr_Occurred()) {
+            PyErr_SetString(PyExc_SystemError,
+                            "pipeline node without a topic name");
+        }
+        return NULL;
+    }
+    return Py_NewRef(name);
 }
 
 PySTEntryObject *
@@ -2411,6 +2441,39 @@ symtable_handle_namedexpr(struct symtable *st, expr_ty e)
     return 1;
 }
 
+/* Assign a deterministic hidden topic name to a Pipeline AST node.
+   Hidden names start with '.' so they cannot be written in source. */
+static PyObject *
+pipeline_register_topic_name(struct symtable *st, expr_ty e)
+{
+    PyObject *key = PyLong_FromVoidPtr((void *)e);
+    if (key == NULL) {
+        return NULL;
+    }
+    PyObject *name = PyDict_GetItemWithError(st->st_pipeline_names, key);
+    if (name != NULL) {
+        Py_DECREF(key);
+        return Py_NewRef(name);
+    }
+    if (PyErr_Occurred()) {
+        Py_DECREF(key);
+        return NULL;
+    }
+    name = PyUnicode_FromFormat(".pipe_topic_%zd", st->st_next_pipeline_topic);
+    if (name == NULL) {
+        Py_DECREF(key);
+        return NULL;
+    }
+    st->st_next_pipeline_topic++;
+    int rc = PyDict_SetItem(st->st_pipeline_names, key, name);
+    Py_DECREF(key);
+    if (rc < 0) {
+        Py_DECREF(name);
+        return NULL;
+    }
+    return name; /* new reference */
+}
+
 static int
 symtable_visit_expr(struct symtable *st, expr_ty e)
 {
@@ -2453,6 +2516,38 @@ symtable_visit_expr(struct symtable *st, expr_ty e)
         VISIT(st, expr, e->v.IfExp.body);
         VISIT(st, expr, e->v.IfExp.orelse);
         break;
+    case Pipeline_kind: {
+        // The pipeline value is analyzed in the surrounding topic
+        // environment; the body gets a fresh hidden topic binding in
+        // the current Python scope.
+        VISIT(st, expr, e->v.Pipeline.value);
+        PyObject *topic_name = pipeline_register_topic_name(st, e);
+        if (topic_name == NULL) {
+            return 0;
+        }
+        int ok = 0;
+        if (symtable_add_def(st, topic_name, DEF_LOCAL, LOCATION(e)) &&
+            PyList_Append(st->st_pipeline_topics, topic_name) == 0) {
+            ok = symtable_visit_expr(st, e->v.Pipeline.body);
+            Py_ssize_t size = PyList_GET_SIZE(st->st_pipeline_topics);
+            if (PyList_SetSlice(st->st_pipeline_topics, size - 1, size, NULL) < 0) {
+                ok = 0;
+            }
+        }
+        Py_DECREF(topic_name);
+        LEAVE_RECURSIVE();
+        return ok;
+    }
+    case PipeTopic_kind: {
+        // Preprocessing guarantees that a pipeline body context is active.
+        Py_ssize_t size = PyList_GET_SIZE(st->st_pipeline_topics);
+        assert(size > 0);
+        PyObject *topic_name = PyList_GET_ITEM(st->st_pipeline_topics, size - 1);
+        if (!symtable_add_def(st, topic_name, USE, LOCATION(e))) {
+            return 0;
+        }
+        break;
+    }
     case Dict_kind:
         VISIT_SEQ_WITH_NULL(st, expr, e->v.Dict.keys);
         VISIT_SEQ(st, expr, e->v.Dict.values);
