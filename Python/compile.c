@@ -104,6 +104,7 @@ typedef struct _PyCompiler {
                                   * (including instructions for nested code objects)
                                   */
     int c_disable_warning;
+    PyObject *c_pipeline_topics; /* Python list: stack of active pipeline topic names */
 } compiler;
 
 static int
@@ -119,6 +120,11 @@ compiler_setup(compiler *c, mod_ty mod, PyObject *filename,
 
     c->c_stack = PyList_New(0);
     if (!c->c_stack) {
+        return ERROR;
+    }
+
+    c->c_pipeline_topics = PyList_New(0);
+    if (!c->c_pipeline_topics) {
         return ERROR;
     }
 
@@ -158,7 +164,34 @@ compiler_free(compiler *c)
     Py_XDECREF(c->c_filename);
     Py_XDECREF(c->c_const_cache);
     Py_XDECREF(c->c_stack);
+    Py_XDECREF(c->c_pipeline_topics);
     PyMem_Free(c);
+}
+
+int
+_PyCompile_PushPipelineTopic(struct _PyCompiler *c, PyObject *name)
+{
+    return PyList_Append(c->c_pipeline_topics, name);
+}
+
+void
+_PyCompile_PopPipelineTopic(struct _PyCompiler *c)
+{
+    Py_ssize_t size = PyList_GET_SIZE(c->c_pipeline_topics);
+    if (size == 0) {
+        Py_FatalError("pipeline topic stack underflow");
+    }
+    if (PyList_SetSlice(c->c_pipeline_topics, size - 1, size, NULL) < 0) {
+        Py_FatalError("cannot pop pipeline topic");
+    }
+}
+
+PyObject *
+_PyCompile_CurrentPipelineTopic(struct _PyCompiler *c)
+{
+    Py_ssize_t size = PyList_GET_SIZE(c->c_pipeline_topics);
+    assert(size > 0);
+    return PyList_GET_ITEM(c->c_pipeline_topics, size - 1);
 }
 
 static compiler*

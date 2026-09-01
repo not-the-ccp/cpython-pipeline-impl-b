@@ -1995,6 +1995,52 @@ codegen_ifexp(compiler *c, expr_ty e)
     return SUCCESS;
 }
 
+/* Compile a pipeline expression.  The topic is stored into an invisible
+   ordinary name binding: evaluate the value once, store it under the
+   pipeline's hidden topic name, then compile the body with '$' resolved
+   to that name. */
+static int
+codegen_pipeline(compiler *c, expr_ty e)
+{
+    PyObject *name = NULL;
+    int pushed = 0;
+    int ret = ERROR;
+
+    name = _PySymtable_GetPipelineTopicName(_PyCompile_Symtable(c), (void *)e);
+    if (name == NULL) {
+        goto done;
+    }
+    if (codegen_visit_expr(c, e->v.Pipeline.value) < 0) {
+        goto done;
+    }
+    if (codegen_nameop(c, LOC(e), (identifier)name, Store) < 0) {
+        goto done;
+    }
+    if (_PyCompile_PushPipelineTopic(c, name) < 0) {
+        goto done;
+    }
+    pushed = 1;
+    if (codegen_visit_expr(c, e->v.Pipeline.body) < 0) {
+        goto done;
+    }
+    ret = SUCCESS;
+done:
+    if (pushed) {
+        _PyCompile_PopPipelineTopic(c);
+    }
+    Py_XDECREF(name);
+    return ret;
+}
+
+static int
+codegen_pipetopic(compiler *c, expr_ty e)
+{
+    assert(e->kind == PipeTopic_kind);
+    // Preprocessing guarantees that a pipeline body context is active.
+    PyObject *name = _PyCompile_CurrentPipelineTopic(c);
+    return codegen_nameop(c, LOC(e), (identifier)name, Load);
+}
+
 static int
 codegen_lambda(compiler *c, expr_ty e)
 {
@@ -5208,6 +5254,10 @@ codegen_visit_expr(compiler *c, expr_ty e)
         return codegen_lambda(c, e);
     case IfExp_kind:
         return codegen_ifexp(c, e);
+    case Pipeline_kind:
+        return codegen_pipeline(c, e);
+    case PipeTopic_kind:
+        return codegen_pipetopic(c, e);
     case Dict_kind:
         return codegen_dict(c, e);
     case Set_kind:

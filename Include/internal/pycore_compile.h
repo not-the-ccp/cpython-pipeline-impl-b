@@ -128,6 +128,10 @@ void _PyCompile_PopFBlock(struct _PyCompiler *c, enum _PyCompile_FBlockType t,
                           _PyJumpTargetLabel block_label);
 _PyCompile_FBlockInfo *_PyCompile_TopFBlock(struct _PyCompiler *c);
 
+int _PyCompile_PushPipelineTopic(struct _PyCompiler *c, PyObject *name);
+void _PyCompile_PopPipelineTopic(struct _PyCompiler *c);
+PyObject *_PyCompile_CurrentPipelineTopic(struct _PyCompiler *c);
+
 int _PyCompile_EnterScope(struct _PyCompiler *c, identifier name, int scope_type,
                           void *key, int lineno, PyObject *private,
                           _PyCompile_CodeUnitMetadata *umd);
