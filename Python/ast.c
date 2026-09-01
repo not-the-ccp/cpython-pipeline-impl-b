@@ -280,6 +280,13 @@ validate_expr(expr_ty exp, expr_context_ty ctx)
             validate_expr(exp->v.IfExp.body, Load) &&
             validate_expr(exp->v.IfExp.orelse, Load);
         break;
+    case Pipeline_kind:
+        ret = validate_expr(exp->v.Pipeline.value, Load) &&
+            validate_expr(exp->v.Pipeline.body, Load);
+        break;
+    case PipeTopic_kind:
+        ret = 1;
+        break;
     case Dict_kind:
         if (asdl_seq_LEN(exp->v.Dict.keys) != asdl_seq_LEN(exp->v.Dict.values)) {
             PyErr_SetString(PyExc_ValueError,
