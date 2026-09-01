@@ -1512,7 +1512,7 @@ Incomplete dictionary literals
 
    >>> {1: $, 2: 3}
    Traceback (most recent call last):
-   SyntaxError: invalid syntax
+   SyntaxError: pipeline topic '$' is only valid in a pipeline body
 
 Specialized indentation errors:
 
