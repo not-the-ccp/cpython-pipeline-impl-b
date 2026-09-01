@@ -118,6 +118,7 @@ append_repr(PyUnicodeWriter *writer, PyObject *obj)
 enum {
     PR_TUPLE,
     PR_TEST,            /* 'if'-'else', 'lambda' */
+    PR_PIPE,            /* '|>' */
     PR_OR,              /* 'or' */
     PR_AND,             /* 'and' */
     PR_NOT,             /* 'not' */
@@ -931,6 +932,29 @@ append_named_expr(PyUnicodeWriter *writer, expr_ty e, int level)
 }
 
 static int
+append_ast_pipeline(PyUnicodeWriter *writer, expr_ty e, int level)
+{
+    bool parenthesized = level > PR_PIPE;
+    if (parenthesized) {
+        APPEND_STR("(");
+    }
+    APPEND_EXPR(e->v.Pipeline.value, PR_PIPE);
+    APPEND_STR(" |> ");
+    APPEND_EXPR(e->v.Pipeline.body, PR_PIPE + 1);
+    if (parenthesized) {
+        APPEND_STR(")");
+    }
+    return 0;
+}
+
+static int
+append_ast_pipetopic(PyUnicodeWriter *writer, expr_ty e)
+{
+    APPEND_STR_FINISH("$");
+    return 0;
+}
+
+static int
 append_ast_expr(PyUnicodeWriter *writer, expr_ty e, int level)
 {
     switch (e->kind) {
@@ -944,6 +968,10 @@ append_ast_expr(PyUnicodeWriter *writer, expr_ty e, int level)
         return append_ast_lambda(writer, e, level);
     case IfExp_kind:
         return append_ast_ifexp(writer, e, level);
+    case Pipeline_kind:
+        return append_ast_pipeline(writer, e, level);
+    case PipeTopic_kind:
+        return append_ast_pipetopic(writer, e);
     case Dict_kind:
         return append_ast_dict(writer, e);
     case Set_kind:

@@ -18,6 +18,7 @@ class _Precedence:
     TUPLE = auto()           # <expr1>, <expr2>
     YIELD = auto()           # 'yield', 'yield from'
     TEST = auto()            # 'if'-'else', 'lambda'
+    PIPE = auto()            # '|>'
     OR = auto()              # 'or'
     AND = auto()             # 'and'
     NOT = auto()             # 'not'
@@ -752,7 +753,7 @@ class Unparser(NodeVisitor):
         self.set_precedence(_Precedence.TUPLE, node.target)
         self.traverse(node.target)
         self.write(" in ")
-        self.set_precedence(_Precedence.TEST.next(), node.iter, *node.ifs)
+        self.set_precedence(_Precedence.OR, node.iter, *node.ifs)
         self.traverse(node.iter)
         for if_clause in node.ifs:
             self.write(" if ")
@@ -760,13 +761,29 @@ class Unparser(NodeVisitor):
 
     def visit_IfExp(self, node):
         with self.require_parens(_Precedence.TEST, node):
-            self.set_precedence(_Precedence.TEST.next(), node.body, node.test)
+            # body and test are disjunctions in the grammar, so a
+            # pipeline (or any weaker operator) needs parentheses there
+            self.set_precedence(_Precedence.OR, node.body, node.test)
             self.traverse(node.body)
             self.write(" if ")
             self.traverse(node.test)
             self.write(" else ")
             self.set_precedence(_Precedence.TEST, node.orelse)
             self.traverse(node.orelse)
+
+    def visit_Pipeline(self, node):
+        with self.require_parens(_Precedence.PIPE, node):
+            # The value may itself be a left-nested pipeline or a
+            # disjunction; the body is a disjunction, so a nested
+            # pipeline needs parentheses there.
+            self.set_precedence(_Precedence.PIPE, node.value)
+            self.traverse(node.value)
+            self.write(" |> ")
+            self.set_precedence(_Precedence.PIPE.next(), node.body)
+            self.traverse(node.body)
+
+    def visit_PipeTopic(self, node):
+        self.write("$")
 
     def visit_Set(self, node):
         if node.elts:
