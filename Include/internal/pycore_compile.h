@@ -11,6 +11,7 @@ extern "C" {
 #include <stdbool.h>
 
 #include "pycore_ast.h"       // mod_ty
+#include "pycore_c_array.h"   // _Py_c_array_t
 #include "pycore_symtable.h"  // _Py_SourceLocation
 #include "pycore_instruction_sequence.h"
 
