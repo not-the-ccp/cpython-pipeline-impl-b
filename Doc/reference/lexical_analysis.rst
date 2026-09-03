@@ -65,8 +65,11 @@ with links to sections that contain more information.
      - * :ref:`Numeric literal <numbers>`
        * :ref:`Operator <operators>`
 
+   * - * dollar (``$``)
+     - * :ref:`Operator or delimiter <operators>`
+       * :ref:`Pipeline topic <pipeline-expressions>`
+
    * - * question mark (``?``)
-       * dollar (``$``)
        *
          .. (the following uses zero-width space characters to render
          .. a literal backquote)
@@ -97,7 +100,7 @@ A Python program is divided into a number of *logical lines*.
 Logical lines
 -------------
 
-.. index:: logical line, physical line, line joining, NEWLINE token
+.. index:: logical line, physical line, line joining, statement grouping
 
 The end of a logical line is represented by the token :data:`~token.NEWLINE`.
 Statements cannot cross logical line boundaries except where :data:`!NEWLINE`
@@ -724,7 +727,7 @@ The '``r``' prefix can be combined with '``f``', '``t``' or '``b``', so '``fr``'
 
 .. versionadded:: 3.3
    The ``'rb'`` prefix of raw bytes literals has been added as a synonym
-   of ``'br'``.
+   of 'br'.
 
    Support for the unicode legacy literal (``u'value'``) was reintroduced
    to simplify the maintenance of dual Python 2.x and 3.x codebases.
@@ -1351,7 +1354,7 @@ For example, the following literals are equivalent::
 
    100_000_000_000
    100000000000
-   1_00_00_00_00_000
+   1_00_00_00_000
 
 Underscores can only occur between digits.
 For example, ``_123``, ``321_``, and ``123__321`` are *not* valid literals.
@@ -1551,6 +1554,8 @@ is also available in the :mod:`!token` module documentation.
       | enclosing_delimiter
       | other_delimiter
       | arithmetic_operator
+      | pipeline_operator
+      | pipeline_topic
       | "..."
       | other_op
 
@@ -1561,7 +1566,16 @@ is also available in the :mod:`!token` module documentation.
    enclosing_delimiter:   "("  | ")"  | "["  | "]"   | "{"   | "}"
    other_delimiter:       ","  | ":"  | "!"  | ";"   | "="   | "->"
    arithmetic_operator:   "+"  | "-"  | "**" | "*"   | "//"  | "/"   | "%"
+   pipeline_operator:     "|>"
+   pipeline_topic:        "$"
    other_op:              "."  | "@"
+
+In this experimental fork, ``|>`` is the :ref:`pipeline operator
+<pipeline-expressions>`, and ``$`` is the exact punctuation token used for the
+current pipeline topic.  ``$`` is not a :data:`~token.NAME`, keyword, or soft
+keyword.  Whether a ``$`` token is in a valid pipeline body is a syntactic and
+compiler-validation question rather than a distinction made by the lexical
+analyzer.
 
 .. note::
 
