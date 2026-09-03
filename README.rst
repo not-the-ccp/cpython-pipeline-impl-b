@@ -1,13 +1,54 @@
-This is Python version 3.14.7
-=============================
+CPython 3.14.7 with an experimental pipeline operator
+======================================================
 
-.. image:: https://github.com/python/cpython/actions/workflows/build.yml/badge.svg?branch=main&event=push
-   :alt: CPython build status on GitHub Actions
-   :target: https://github.com/python/cpython/actions
+This repository is an experimental syntax fork of CPython 3.14.7.  It adds a
+pipeline operator, ``|>``, and a lexical pipeline-topic expression, ``$``.
+It is not upstream Python and is not a PEP or a claim that this syntax has been
+accepted for Python.
 
-.. image:: https://dev.azure.com/python/cpython/_apis/build/status/Azure%20Pipelines%20CI?branchName=main
-   :alt: CPython build status on Azure DevOps
-   :target: https://dev.azure.com/python/cpython/_build/latest?definitionId=4&branchName=main
+A pipeline stage has the form::
+
+    value |> body_using_$
+
+The left-hand side is evaluated exactly once and completes before the body is
+evaluated.  During the body, ``$`` denotes that stage's value.  The result of
+the body is the result of the stage.  There is no implicit function call or
+argument insertion: calls remain explicit Python calls.
+
+For example::
+
+    "hello" |> len($) |> hex($)          # '0x5'
+    records |> [r for r in $ if pred(r)] |> sorted($, key=key)
+
+Each pipeline body must lexically use its own ``$``.  Consequently ``x |> f``
+and ``x |> f()`` are errors, while ``x |> f($)`` is explicit and valid.  In a
+nested pipeline, the nested left-hand side is still evaluated while the outer
+topic is active, and the nested body introduces a fresh topic.
+
+The implementation deliberately lowers topics through ordinary CPython
+name/cell/free-variable machinery.  It does not add a pipeline runtime object,
+runtime protocol, or bytecode opcode.  Normal source caches use the distinct
+``cpython-314-pipeline`` tag so they cannot be confused with stock CPython
+source caches; the interpreter otherwise remains CPython 3.14.7 at the
+bytecode/native-extension ABI level.
+
+For the detailed design and implementation notes, see
+`Doc/experiments/pipeline-operator.rst <Doc/experiments/pipeline-operator.rst>`_.
+A runnable example is in `Demo/pipeline_demo.py <Demo/pipeline_demo.py>`_.
+
+Build and try it on a Unix-like system::
+
+    ./configure
+    make -j2
+    ./python -c 'print("hello" |> len($))'
+
+After building, the fork-specific local verification entry points are::
+
+    ./python Tools/scripts/check_pipeline_fork.py
+    ./python Tools/scripts/check_pipeline_fork.py --regen-check
+    ./python Tools/scripts/check_pipeline_fork.py --full
+
+No hosted CI is enabled in this standalone experiment repository.
 
 .. image:: https://img.shields.io/badge/discourse-join_chat-brightgreen.svg
    :alt: Python Discourse chat
@@ -20,8 +61,8 @@ See the end of this file for further copyright and license information.
 
 .. contents::
 
-General Information
--------------------
+Upstream CPython information
+----------------------------
 
 - Website: https://www.python.org
 - Source code: https://github.com/python/cpython
