@@ -100,7 +100,7 @@ A Python program is divided into a number of *logical lines*.
 Logical lines
 -------------
 
-.. index:: logical line, physical line, line joining, statement grouping
+.. index:: logical line, physical line, line joining, NEWLINE token
 
 The end of a logical line is represented by the token :data:`~token.NEWLINE`.
 Statements cannot cross logical line boundaries except where :data:`!NEWLINE`
@@ -502,8 +502,8 @@ characters:
    .. note::
 
       The name ``_`` is often used in conjunction with internationalization;
-      refer to the documentation for the :mod:`gettext` module for more
-      information on this convention.
+      refer to the documentation on :mod:`gettext` for more information on this
+      convention.
 
       It is also commonly used for unused variables.
 
@@ -603,7 +603,7 @@ included in the :mod:`unicodedata` module.
 .. _UAX-31: https://www.unicode.org/reports/tr31/
 .. _PropList.txt: https://www.unicode.org/Public/16.0.0/ucd/PropList.txt
 .. _DerivedCoreProperties.txt: https://www.unicode.org/Public/16.0.0/ucd/DerivedCoreProperties.txt
-.. _normalization form: https://www.unicode.org/reports/tr15/#Norm_Forms
+.. _normalization form: https://unicode.org/reports/tr15/#Norm_Forms
 
 .. seealso::
 
@@ -727,7 +727,7 @@ The '``r``' prefix can be combined with '``f``', '``t``' or '``b``', so '``fr``'
 
 .. versionadded:: 3.3
    The ``'rb'`` prefix of raw bytes literals has been added as a synonym
-   of 'br'.
+   of ``'br'``.
 
    Support for the unicode legacy literal (``u'value'``) was reintroduced
    to simplify the maintenance of dual Python 2.x and 3.x codebases.
@@ -843,7 +843,7 @@ or parentheses and :ref:`string literal concatenation <string-concatenation>`.
 .. _string-escape-escaped-char:
 
 Escaped characters
-^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^
 
 To include a backslash in a non-:ref:`raw <raw-strings>` Python string
 literal, it must be doubled. The ``\\`` escape sequence denotes a single
@@ -886,7 +886,7 @@ In a string literal, it means a Unicode character with the given value.
 .. _string-escape-hex:
 
 Hexadecimal character
-^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
 
 The sequence :samp:`\\x{hh}` denotes a *character* with the hex (base 16)
 value *hh*::
@@ -1354,7 +1354,7 @@ For example, the following literals are equivalent::
 
    100_000_000_000
    100000000000
-   1_00_00_00_000
+   1_00_00_00_00_000
 
 Underscores can only occur between digits.
 For example, ``_123``, ``321_``, and ``123__321`` are *not* valid literals.
