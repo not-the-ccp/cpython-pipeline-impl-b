@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 FOCUSED_TESTS = (
     "test_pipeline",
+    "test_pipeline_integration",
     "test_ast",
     "test_annotationlib",
     "test_symtable",
@@ -108,6 +109,9 @@ def structural_checks() -> None:
     assert token.EXACT_TOKEN_TYPES["$"] == token.DOLLAR
     assert ast.Pipeline._fields == ("value", "body")
     assert ast.PipeTopic._fields == ()
+    assert sys.implementation.name == "cpython"
+    assert sys.implementation.cache_tag == "cpython-314-pipeline"
+    assert sys.implementation._pipeline_fork is True
 
     for relative in ("Python/bytecodes.c", "Python/optimizer_bytecodes.c"):
         path = ROOT / relative
@@ -118,6 +122,19 @@ def structural_checks() -> None:
                 f"pipeline-specific opcode declaration found in {relative}: "
                 f"{match.group(0)!r}"
             )
+
+    compile_source = (ROOT / "Python" / "compile.c").read_text(encoding="utf-8")
+    symtable_source = (ROOT / "Python" / "symtable.c").read_text(encoding="utf-8")
+    for relative, text in (
+        ("Python/compile.c", compile_source),
+        ("Python/symtable.c", symtable_source),
+    ):
+        if "Py_FatalError(\"pipeline topic" in text:
+            raise AssertionError(f"fallible/fatal pipeline topic pop remains in {relative}")
+    if "PyObject *c_pipeline_topics" in compile_source:
+        raise AssertionError("compiler active pipeline topics still use a PyObject/PyList stack")
+    if "PyObject *st_pipeline_topics" in (ROOT / "Include" / "internal" / "pycore_symtable.h").read_text(encoding="utf-8"):
+        raise AssertionError("symtable active pipeline topics still use a PyObject/PyList stack")
 
 
 def ensure_make_regen_supported() -> None:
