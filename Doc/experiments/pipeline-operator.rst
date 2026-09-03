@@ -6,198 +6,278 @@ Experimental pipeline operator
 This document describes an experimental language feature added to this
 interpreter: the **pipeline operator** ``|>`` and its **topic** ``$``.
 
-The feature is self-contained.  It adds two tokens, two AST node
-types, a small lexical rule, and a compiler lowering.  It adds no new
-opcode, no new runtime wrapper, and no new scoping rules: the body of
-a pipeline is compiled over a deterministic hidden local name that
-the rest of the compiler already knows how to handle.
+The feature is self-contained.  It adds two exact tokens, two AST node types,
+a grammar level, lexical topic validation, and compiler lowering.  It adds no
+new opcode, runtime wrapper, or runtime pipeline protocol.  Topics are lowered
+through ordinary CPython name, local, cell, and free-variable machinery.
 
 Status
 ------
 
-This is an experiment, not a proposed PEP.  The operator is always
-enabled in this build (there is no ``from __future__ import`` and no
-command-line flag); it is documented here so that its behavior and its
-limits can be evaluated on their own merits.  No compatibility
-guarantees are made, and nothing in the standard library has been
-rewritten to use it.
+This is an experiment, not a proposed PEP.  The operator is always enabled in
+this build; there is no ``from __future__ import`` and no command-line flag.
+Nothing here is an upstream Python compatibility guarantee.
 
 Syntax and precedence
 ---------------------
 
-::
+The grammar is conceptually::
 
-    value |> body
+    expression:
+        | pipeline 'if' disjunction 'else' expression
+        | pipeline
+        | lambdef
 
-Both ``value`` and ``body`` are *disjunctions*: everything from
-``or`` down to atoms, including nested pipelines.  The pipe is a
-binary operator that binds looser than every other binary operator,
-so the value side absorbs the whole surrounding disjunction::
+    pipeline:
+        | pipeline '|>' disjunction
+        | disjunction
+
+Consequently, a pipeline chain is left-recursive and left-associative.  The
+base/first left operand is a disjunction, a later left operand may itself be a
+pipeline, and every immediate right/body operand is a disjunction.  ``or``
+binds tighter than ``|>``, while conditional expressions and lambdas bind
+looser::
 
     x or y |> f($)          # (x or y) |> f($)
     1 + 2 |> $ * 10         # (1 + 2) |> ($ * 10), i.e. 30
-
-As with every binary operator, a conditional expression or a lambda
-used directly as an operand must be parenthesized::
-
     x |> (f($) if cond else g($))
     x |> (lambda: $ + 1)()
-    1 if (x |> f($)) else y     # the conditional test is a disjunction
+    1 if (x |> f($)) else y
 
-Chains are left-associative::
+Chains group to the left::
 
-    a |> b |> c                 # (a |> b) |> c
+    a |> b($) |> c($)       # (a |> b($)) |> c($)
 
 The topic
 ---------
 
-Inside the body, ``$`` is an expression atom that refers to the value
-of the pipeline.  It has the same syntactic position as any other
-atom (``$[0]``, ``$.attr``, ``f($)``), and it may appear any number of
-times in the body, including inside nested comprehensions, generator
-expressions, and lambdas defined in the body::
+Inside a pipeline body, ``$`` is an expression atom referring to that stage's
+value.  It can be used in ordinary expression positions, including::
 
     "hello" |> len($)
-    3 |> [$ * i for i in range(3)]          # [0, 3, 6]
-    10 |> (lambda: $ + 1)()                 # 11
-    10 |> [$ + i for i in range(3)]         # [10, 11, 12]
+    args |> f(*$)
+    kwargs |> f(**$)
+    obj |> $.method()
+    seq |> $[0]
+    7 |> ($, $)
 
-``$`` is **not a keyword**.  It is a single-character operator token.
-Outside a pipeline body it is an error (``$`` has never been a valid
-Python identifier character, so this changes no existing program); the
-error is reported as a pipeline diagnostic rather than a generic
-"invalid syntax".  ``$`` does not interact with the keyword machinery
-(``keyword.iskeyword("$")`` and ``keyword.issoftkeyword("$")`` are
-both ``False``).
+``$`` is a dedicated exact punctuation/operator token in this fork.  It is
+neither an identifier nor a keyword.  Outside a pipeline body compilation
+reports the dedicated topic error.  ``keyword.iskeyword("$")`` and
+``keyword.issoftkeyword("$")`` are both false.
+
+Every body must lexically reference **its own** topic.  There is no implicit
+application or argument insertion::
+
+    x |> f        # SyntaxError: this body's own topic is unused
+    x |> f()      # SyntaxError: same
+    x |> f($)     # explicit call
 
 Evaluation contract
 -------------------
 
-- ``value`` is evaluated **exactly once**, and the evaluation
-  **completes before the body begins**.  The pipeline is not lazily
-  threaded: ``f() |> g($)`` calls ``f()`` once, binds its result, then
-  evaluates ``g($)``.
-- ``$`` is a read-only reference to that single value.  Reading it
-  repeatedly is cheap (it is an ordinary local read); it cannot be
-  assigned, and the pipeline's result is the value of the body, not
-  the topic.
-- Chaining rebinds the topic at each step: the value of the second
-  pipeline is the *result* of the first::
+- The pipeline value is evaluated **exactly once** and completes before the
+  body begins.
+- Reading ``$`` reads that one value through the compiler-generated ordinary
+  binding for the stage.
+- The pipeline result is the body result.
+- Chaining makes the previous stage's result the next stage's value::
 
-      5 |> ($ + 1) |> ($ - 1)     # 5
+      5 |> $ + 1 |> $ - 1       # 5
       "hello" |> len($) |> hex($) # '0x5'
 
 Nested pipelines
 ----------------
 
-A nested pipeline introduces a **fresh topic** for its own body.  Its
-*value* expression, however, is still inside the outer body, so it
-sees the **outer** topic::
+A nested pipeline introduces a fresh topic for its own body.  Its value/LHS is
+still part of the outer body, so it is evaluated before the nested topic is
+introduced and can see the outer topic::
 
-    10 |> ($ |> $ + 1)        # inner value $ is 10; inner body is 11
-    10 |> ($ + 1 |> $ * 2)    # inner value ($ + 1) is 11; body is 22
-    10 |> ($ + 90 |> $ + $)   # inner value is 100; body is 200
+    10 |> ($ |> $ + 1)        # nested value is outer topic 10
+    10 |> ($ + 1 |> $ * 2)    # nested value 11, nested body 22
+    10 |> ($ + 90 |> $ + $)   # nested value 100, result 200
 
-Because of that, a pipeline whose body never references *its own*
-topic is rejected, even when the only ``$`` spellings in the source
-resolve to an inner topic::
+An outer pipeline whose only source ``$`` occurrences belong to an inner body
+is therefore rejected::
 
-    10 |> (100 |> $ + $)    # SyntaxError: pipeline body must reference '$'
-
-The topic of a comprehension or generator expression is *not*
-shadowed by a comprehension variable, because the topic is never
-spelled in source at all.
+    10 |> (100 |> $ + $)      # SyntaxError: outer body never uses outer topic
 
 Scoping and closures
 --------------------
 
-The body sees the topic as an ordinary local.  A lambda or
-comprehension defined in the body captures it through the normal cell
-and free-variable machinery, with the usual late-binding semantics::
+The generated topic binding participates in ordinary Python symbol-table and
+closure behavior.  A lambda, nested function, comprehension, or generator can
+capture an enclosing topic in the same way it captures an ordinary local,
+including ordinary late binding.
 
-    def make():
-        funcs = [x |> (lambda: $) for x in (1, 2, 3)]
-        return funcs
-    [f() for f in make()]    # [3, 3, 3]
+A single compilation uses a **compilation-wide monotonically increasing
+serial** to assign deterministic source-unspellable names of the current form
+``.pipe_topic_<n>``.  The serial deliberately does not reset at function or
+comprehension boundaries.  A nested scope can simultaneously capture an outer
+topic and define an inner pipeline topic; compilation-wide uniqueness prevents
+those two distinct bindings from receiving the same internal spelling.
 
-Class scopes follow ordinary Python class-scope rules: a lambda in a
-class body cannot capture a class local, and the hidden topic obeys
-the same rule.
+The symbol table owns the Pipeline-AST-node -> generated-name mapping.  Codegen
+retrieves that mapping and does not independently allocate or reconstruct topic
+names.  The exact generated spelling is an implementation detail, not language
+API, and adding an earlier pipeline may renumber later private names.
 
 Implementation
 --------------
 
-The feature touches the frontend and the compiler only.
-
 Tokens and grammar
 ~~~~~~~~~~~~~~~~~~
 
-``|>`` and ``$`` are new operator tokens (``VBARGREATER``, ``DOLLAR``)
-in ``Grammar/Tokens``.  ``Grammar/python.gram`` inserts a
-left-recursive ``pipeline`` rule between the conditional/lambda level
-and ``or``, and admits ``$`` as an atom.  Because the new rule adds
-one parser stack frame per nesting level, ``pegen``'s ``MAXSTACK``
-guard grows from 6000 to 6300 so the documented 200-level
-nested-parentheses behavior is unchanged.
+``Grammar/Tokens`` defines exact ``VBARGREATER`` (``|>``) and ``DOLLAR``
+(``$``) tokens.  ``Grammar/python.gram`` inserts the left-recursive pipeline
+rule between conditional/lambda expressions and ``or`` and admits ``$`` as the
+``PipeTopic`` atom.
 
-AST
-~~~
+The generated C parser's non-WASI ``MAXSTACK`` is 6300 rather than upstream
+3.14.7's 6000 because the extra common expression grammar level increases PEG
+call depth.  This is distinct from the tokenizer's parenthesis nesting limit.
+``Lib/test/test_grammar.py::TokenTests.test_max_level`` defines that existing
+language boundary: 200 nested parentheses are accepted and 201 fail with
+``too many nested parentheses``.  The fork must preserve that behavior rather
+than increasing parser limits without a reproduced need.
 
-``Pipeline(value, body)`` and ``PipeTopic`` are the new public node
-types.  ``ast.parse`` validates structure (both children of
-``Pipeline`` are expressions; ``PipeTopic`` only occurs in Load
-context) and enforces the lexical rules: a ``PipeTopic`` outside a
-pipeline body is an error, and every pipeline body must lexically
-reference its own topic.  Both unparsers (C and
-``Lib/_ast_unparse.py``) print pipelines with the correct
-parenthesization.
+An older stock host Python need not know ``token.VBARGREATER`` or
+``token.DOLLAR`` merely to regenerate the fork's C parser: pegen reads the
+repository's supplied ``Grammar/Tokens`` exact-token map for quoted grammar
+literals.  Requiring an old host's own pure-Python tokenizer to parse pipeline
+*source* is a different and unnecessary contract.
 
-Symbol table
-~~~~~~~~~~~~
+AST and validation
+~~~~~~~~~~~~~~~~~~
 
-Each pipeline body is bound to a deterministic hidden local name,
-``.pipe_topic_<n>``, where ``<n>`` counts pipelines within the
-enclosing function or module scope.  The name depends only on the
-structure of the code, so recompiles and equivalent ASTs produce
-identical names and bytecode.  The topic is marked as a local
-definition, so the existing closure, cell, and free-variable logic
-treats it exactly like a compiler-generated local such as the
-inlined-comprehension temporaries.
+``Parser/Python.asdl`` defines public ``Pipeline(value, body)`` and leaf
+``PipeTopic`` expression nodes.  ``PipeTopic`` has no ``expr_context`` field;
+it is read-only topic syntax.
 
-Code generation
-~~~~~~~~~~~~~~~
+AST preprocessing performs the context-sensitive lexical validation in source
+order: visit ``Pipeline.value`` under the current outer context, push a fresh
+unused body-topic context, visit the body, require that current context to have
+been used, then pop it.  A ``PipeTopic`` marks only the current/top context as
+used.  Generic AST structure validation and generated AST fields continue to
+handle ordinary structure/traversal.
 
-``codegen_pipeline`` evaluates the value, stores it in the hidden
-topic local, compiles the body, and returns the body's value.  No new
-opcode is emitted; ``dis`` of a pipeline shows only pre-existing names
-(``STORE_FAST``/``LOAD_FAST``, ``STORE_NAME``/``LOAD_NAME``, and the
-usual cell and free-variable opcodes).
+Both the Python and limited C unparsers have a PIPE precedence level.  Grammar
+slots that specifically accept a ``disjunction`` (for example conditional
+body/test and comprehension iterable/filter positions) must request OR
+precedence so a manually constructed Pipeline AST is parenthesized there.
+
+Compiler topic stacks
+~~~~~~~~~~~~~~~~~~~~~
+
+The compiler and symbol-table **active topic stacks are compile-time
+bookkeeping only**.  The final implementation should use raw ``_Py_c_array_t``
+stacks of borrowed ``PyObject *`` generated-name pointers rather than Python
+``list`` objects.  The caller already owns a strong name reference throughout
+recursive body traversal, so the stack need not own another reference.
+
+That gives the desired error model: capacity growth can fail before push,
+successful push is a raw pointer store, current-topic lookup is a borrowed
+pointer read, and pop is an infallible decrement/raw clear with no allocation
+or decref.  There is no runtime topic stack.
+
+Symbol table and code generation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The symbol table visits a pipeline value first, allocates/looks up the
+deterministic generated name, defines it as an ordinary local/name in the
+current Python scope, pushes that name only for body traversal, and always pops
+on recursive exit.
+
+``codegen_pipeline`` evaluates the LHS, stores it with ordinary name-op code,
+pushes the same generated name while compiling the body, then leaves the
+body's value on the VM stack.  ``codegen_pipetopic`` is an ordinary Load of the
+current generated binding.  Disassembly therefore uses existing FAST/NAME/CELL
+and FREE opcode families only; there is no ``PIPE`` opcode.
+
+Hidden-local metadata
+~~~~~~~~~~~~~~~~~~~~~
+
+For function-like compiler units, generated pipeline locals should be marked
+through CPython's existing ``u_fasthidden`` -> ``CO_FAST_HIDDEN`` machinery.
+That means tooling which honors the hidden-local bit does not treat the
+compiler temporary exactly like a normal user-writable fast local.
+
+This bit does **not** make the spelling disappear from all introspection.  A
+locals-plus entry can simultaneously be ``CO_FAST_LOCAL | CO_FAST_HIDDEN``
+(and also ``CO_FAST_CELL`` when captured), so ``co_varnames`` and
+``co_cellvars`` can still expose the generated name.  A nested code object can
+show it in ``co_freevars``.  Module/class lowering can leave a source-unspellable
+key in the namespace.  These are accepted low-level implementation artifacts;
+this experiment does not add a new code-object slot kind or global frame-local
+filter to conceal them.
+
+Source-cache and ABI identity
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The fork remains CPython 3.14.7:
+
+- ``sys.implementation.name == 'cpython'``;
+- ``platform.python_implementation() == 'CPython'``;
+- numeric Python version, pyc magic, opcode set, SOABI, extension suffixes,
+  stable ABI, and native extension ABI remain the underlying CPython 3.14.7
+  values.
+
+Normal source caches use ``sys.implementation.cache_tag ==
+'cpython-314-pipeline'`` and expose private marker
+``sys.implementation._pipeline_fork is True``.  The distinct cache filename is
+important because fork bytecode intentionally remains ordinary 3.14 bytecode:
+a stock interpreter must not accidentally select a fork-generated normal cache
+for source syntax that stock CPython cannot parse.  Directly supplied compatible
+3.14 pyc files may still execute under a like-version stock interpreter because
+no code-object or opcode format was added.
 
 Errors
 ------
 
 ``$`` outside a pipeline body::
 
-    $                    # SyntaxError: pipeline topic '$' is only valid in a pipeline body
+    $                    # SyntaxError: topic is only valid in a pipeline body
 
-A pipeline body that never references its own topic::
+A body that never references its own topic::
 
     10 |> f()            # SyntaxError: pipeline body must reference '$'
 
-A ``$`` used where a pipeline's *value* appears (a value is not inside
-any body)::
+A topic used in a top-level pipeline value::
 
-    ($) |> $ + 1         # SyntaxError: pipeline topic '$' is only valid in a pipeline body
+    ($) |> $ + 1         # SyntaxError: topic is not inside any body yet
 
-Target-form errors name the pipeline expression, e.g. ``x |> f($) +=
-1`` reports that a ``pipeline expression`` is an illegal augmented
-assignment target.
+Target-form diagnostics should identify the expression as a pipeline expression
+and must never expose the generated internal name.
+
+Local verification
+------------------
+
+After building this checkout, run::
+
+    ./python Tools/scripts/check_pipeline_fork.py
+
+for the focused compiler/parser/AST/token regression set.  From a clean tracked
+worktree, run::
+
+    ./python Tools/scripts/check_pipeline_fork.py --regen-check
+
+for two-pass token/AST/parser regeneration determinism, or::
+
+    ./python Tools/scripts/check_pipeline_fork.py --full
+
+for two-pass ``make regen-all`` determinism.  The verifier never resets, cleans,
+or restores developer work and no hosted CI is required.
 
 Testing and demo
 ----------------
 
-The behavior is covered by ``Lib/test/test_pipeline.py`` (evaluation
-contract, every required error, AST structure and round trips,
-tokenization, scoping, suspend/resume, and a check that no new opcode
-is introduced).  ``Demo/pipeline_demo.py`` shows the operator applied
-to realistic standard-library work.
+``Lib/test/test_pipeline.py`` is the primary feature suite.  Adjacent CPython
+tests for AST, annotation stringification, symbol tables, compilation,
+disassembly, code/frame metadata, tokens/tokenization, syntax/grammar,
+f-strings, t-strings, and pegen are part of the focused verifier because the
+feature crosses all of those frontend surfaces.
+
+``Demo/pipeline_demo.py`` shows the operator applied to realistic code.  The
+final integration gate additionally requires deterministic regeneration, a
+normal and debug build, broad CPython regression testing, documentation build,
+old-host C-parser regeneration, and cache/ABI compatibility experiments.
