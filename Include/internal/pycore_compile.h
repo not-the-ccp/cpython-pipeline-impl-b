@@ -74,7 +74,7 @@ typedef struct {
 
     Py_ssize_t u_argcount;        /* number of arguments for block */
     Py_ssize_t u_posonlyargcount;        /* number of positional only arguments for block */
-    Py_ssize_t u_kwonlyargcount; /* number of keyword only arguments for block */
+    Py_ssize_t u_kwonlyargcount; /* number of keyword only arguments */
 
     int u_firstlineno; /* the first lineno of the block */
 } _PyCompile_CodeUnitMetadata;
@@ -133,7 +133,6 @@ _PyCompile_FBlockInfo *_PyCompile_TopFBlock(struct _PyCompiler *c);
 int _PyCompile_PushPipelineTopic(struct _PyCompiler *c, PyObject *name);
 void _PyCompile_PopPipelineTopic(struct _PyCompiler *c);
 PyObject *_PyCompile_CurrentPipelineTopic(struct _PyCompiler *c);
-int _PyCompile_MarkPipelineTopicHidden(struct _PyCompiler *c, PyObject *name);
 
 int _PyCompile_EnterScope(struct _PyCompiler *c, identifier name, int scope_type,
                           void *key, int lineno, PyObject *private,
