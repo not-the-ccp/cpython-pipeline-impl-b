@@ -96,8 +96,14 @@ class PipelineIntegrationTests(unittest.TestCase):
         instructions = list(dis.get_instructions(ns["f"]))
         opnames = {instruction.opname for instruction in instructions}
 
-        self.assertIn("LOAD_FAST", opnames)
-        self.assertIn("STORE_FAST", opnames)
+        self.assertTrue(
+            any("LOAD_FAST" in opname for opname in opnames),
+            opnames,
+        )
+        self.assertTrue(
+            any(opname.startswith("STORE_FAST") for opname in opnames),
+            opnames,
+        )
         self.assertIn("BINARY_OP", opnames)
         self.assertFalse(any("PIPE" in opname for opname in opcode.opmap))
         self.assertFalse(any("PIPE" in opname for opname in opnames))
@@ -176,21 +182,36 @@ class PipelineIntegrationTests(unittest.TestCase):
         reparsed = ast.parse(text, mode="eval")
         self.assertIsInstance(reparsed.body, ast.TemplateStr)
 
-    def test_annotation_stringifier_pipeline_precedence(self):
-        # Format.STRING is produced by the compiler's limited C AST unparser,
-        # not Lib/_ast_unparse.py.  These are the grammar slots that require
-        # explicit OR/disjunction precedence after inserting PR_PIPE.
-        def f(
-            body: ((x |> use($)) if cond else z),
-            test: (y if (x |> use($)) else z),
-            comp_iter: [v for v in (items |> transform($))],
-            comp_filter: [v for v in items if (x |> pred($))],
-        ):
-            pass
+    def test_future_annotations_c_unparser_pipeline_precedence(self):
+        ns = {}
+        exec(
+            """
+from __future__ import annotations
 
-        annotations = get_annotations(f, format=Format.STRING)
-        self.assertEqual(annotations["body"], "(x |> use($)) if cond else z")
-        self.assertEqual(annotations["test"], "y if (x |> use($)) else z")
+def f(
+    body: ((x |> use($)) if cond else z),
+    test: (y if (x |> use($)) else z),
+    comp_iter: [v for v in (items |> transform($))],
+    comp_filter: [v for v in items if (x |> pred($))],
+):
+    pass
+""",
+            ns,
+        )
+
+        # ``from __future__ import annotations`` goes through
+        # _PyAST_ExprAsUnicode(), the limited C AST unparser.  In particular,
+        # IfExp body/test and comprehension iter/filter are disjunction slots
+        # and must parenthesize a directly nested Pipeline.
+        annotations = ns["f"].__annotations__
+        self.assertEqual(
+            annotations["body"],
+            "(x |> use($)) if cond else z",
+        )
+        self.assertEqual(
+            annotations["test"],
+            "y if (x |> use($)) else z",
+        )
         self.assertEqual(
             annotations["comp_iter"],
             "[v for v in (items |> transform($))]",
