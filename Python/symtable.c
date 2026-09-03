@@ -49,7 +49,7 @@
 "assignment expression within a comprehension cannot be used in a type alias"
 
 #define NAMED_EXPR_COMP_IN_TYPEPARAM \
-"assignment expression within a comprehension cannot be used within the definition of a generic"
+"assignment expression cannot be used within the definition of a generic"
 
 #define NAMED_EXPR_COMP_CONFLICT \
 "assignment expression cannot rebind comprehension iteration variable '%U'"
@@ -396,15 +396,17 @@ symtable_new(void)
 
     st->st_filename = NULL;
     st->st_blocks = NULL;
-    st->st_pipeline_topics = NULL;
+    if (_Py_CArray_Init(&st->st_pipeline_topics, sizeof(PyObject *), 8) < 0) {
+        PyMem_Free(st);
+        return NULL;
+    }
+    st->st_pipeline_topics_used = 0;
     st->st_pipeline_names = NULL;
     st->st_next_pipeline_topic = 0;
 
     if ((st->st_stack = PyList_New(0)) == NULL)
         goto fail;
     if ((st->st_blocks = PyDict_New()) == NULL)
-        goto fail;
-    if ((st->st_pipeline_topics = PyList_New(0)) == NULL)
         goto fail;
     if ((st->st_pipeline_names = PyDict_New()) == NULL)
         goto fail;
@@ -502,7 +504,8 @@ _PySymtable_Free(struct symtable *st)
     Py_XDECREF(st->st_filename);
     Py_XDECREF(st->st_blocks);
     Py_XDECREF(st->st_stack);
-    Py_XDECREF(st->st_pipeline_topics);
+    assert(st->st_pipeline_topics_used == 0);
+    _Py_CArray_Fini(&st->st_pipeline_topics);
     Py_XDECREF(st->st_pipeline_names);
     PyMem_Free((void *)st);
 }
@@ -1141,7 +1144,7 @@ error:
 
    Arguments:
    ste -- current symtable entry (input/output)
-   bound -- set of variables bound in enclosing scopes (input).  bound
+   bound -- set of variables bound in enclosing scopes (input)
        is NULL for module blocks.
    free -- set of free variables in enclosed scopes (output)
    globals -- set of declared global variables in enclosing scopes (input)
@@ -2474,6 +2477,36 @@ pipeline_register_topic_name(struct symtable *st, expr_ty e)
     return name; /* new reference */
 }
 
+/* Active topic entries are borrowed.  The caller keeps a strong reference to
+   each name for the entire interval between push and pop. */
+static int
+pipeline_topics_push(struct symtable *st, PyObject *name)
+{
+    assert(name != NULL);
+    if (_Py_CArray_EnsureCapacity(&st->st_pipeline_topics,
+                                  st->st_pipeline_topics_used) < 0) {
+        return -1;
+    }
+    ((PyObject **)st->st_pipeline_topics.array)[st->st_pipeline_topics_used] = name;
+    st->st_pipeline_topics_used++;
+    return 0;
+}
+
+static PyObject *
+pipeline_topics_top(struct symtable *st)
+{
+    assert(st->st_pipeline_topics_used > 0);
+    return ((PyObject **)st->st_pipeline_topics.array)[st->st_pipeline_topics_used - 1];
+}
+
+static void
+pipeline_topics_pop(struct symtable *st)
+{
+    assert(st->st_pipeline_topics_used > 0);
+    st->st_pipeline_topics_used--;
+    ((PyObject **)st->st_pipeline_topics.array)[st->st_pipeline_topics_used] = NULL;
+}
+
 static int
 symtable_visit_expr(struct symtable *st, expr_ty e)
 {
@@ -2517,22 +2550,28 @@ symtable_visit_expr(struct symtable *st, expr_ty e)
         VISIT(st, expr, e->v.IfExp.orelse);
         break;
     case Pipeline_kind: {
-        // The pipeline value is analyzed in the surrounding topic
-        // environment; the body gets a fresh hidden topic binding in
-        // the current Python scope.
-        VISIT(st, expr, e->v.Pipeline.value);
+        // The value is visited with the surrounding topic still active.
+        if (!symtable_visit_expr(st, e->v.Pipeline.value)) {
+            return 0;
+        }
         PyObject *topic_name = pipeline_register_topic_name(st, e);
         if (topic_name == NULL) {
             return 0;
         }
+        int pushed = 0;
         int ok = 0;
-        if (symtable_add_def(st, topic_name, DEF_LOCAL, LOCATION(e)) &&
-            PyList_Append(st->st_pipeline_topics, topic_name) == 0) {
-            ok = symtable_visit_expr(st, e->v.Pipeline.body);
-            Py_ssize_t size = PyList_GET_SIZE(st->st_pipeline_topics);
-            if (PyList_SetSlice(st->st_pipeline_topics, size - 1, size, NULL) < 0) {
-                ok = 0;
-            }
+        if (!symtable_add_def(st, topic_name, DEF_LOCAL, LOCATION(e))) {
+            goto pipeline_done;
+        }
+        if (pipeline_topics_push(st, topic_name) < 0) {
+            goto pipeline_done;
+        }
+        pushed = 1;
+        ok = symtable_visit_expr(st, e->v.Pipeline.body);
+
+pipeline_done:
+        if (pushed) {
+            pipeline_topics_pop(st);
         }
         Py_DECREF(topic_name);
         LEAVE_RECURSIVE();
@@ -2540,9 +2579,7 @@ symtable_visit_expr(struct symtable *st, expr_ty e)
     }
     case PipeTopic_kind: {
         // Preprocessing guarantees that a pipeline body context is active.
-        Py_ssize_t size = PyList_GET_SIZE(st->st_pipeline_topics);
-        assert(size > 0);
-        PyObject *topic_name = PyList_GET_ITEM(st->st_pipeline_topics, size - 1);
+        PyObject *topic_name = pipeline_topics_top(st);  // borrowed
         if (!symtable_add_def(st, topic_name, USE, LOCATION(e))) {
             return 0;
         }
