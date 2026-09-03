@@ -2120,6 +2120,50 @@ returns a boolean value regardless of the type of its argument
 (for example, ``not 'foo'`` produces ``False`` rather than ``''``.)
 
 
+
+.. _pipeline-expressions:
+
+Pipeline expressions
+====================
+
+.. index::
+   pair: pipeline; expression
+   single: |> (vertical bar greater-than); pipeline operator
+   single: $ (dollar); pipeline topic
+
+.. productionlist:: python-grammar
+   pipeline: `pipeline` "|>" `or_test` | `or_test`
+
+A pipeline expression evaluates the expression on the left of ``|>`` exactly
+once.  Its value is available as the topic expression ``$`` while the
+right-hand expression is evaluated, and the value of that right-hand
+expression becomes the value of the pipeline expression::
+
+   value |> f($)
+   data |> transform($) |> consume($)
+
+There is no implicit call or argument insertion.  Each pipeline body must
+lexically reference its own topic, so ``value |> f`` and ``value |> f()`` are
+syntax errors rather than implicit calls.  The topic can appear anywhere an
+ordinary expression atom can be used, for example ``f(*$)``, ``f(**$)``,
+``$[0]``, and ``$.attribute``.
+
+Pipeline expressions group from left to right::
+
+   a |> f($) |> g($)          # (a |> f($)) |> g($)
+
+A nested pipeline introduces a fresh topic for its own body.  The nested
+pipeline's left-hand expression is still evaluated in the surrounding body,
+before that fresh topic is introduced, and can therefore refer to the outer
+topic::
+
+   10 |> ($ + 1 |> $ * 2)     # 22
+
+``or`` binds more tightly than ``|>``.  Conditional expressions and lambda
+expressions bind less tightly.  Parentheses can be used when either of those
+forms is intended inside a pipeline body.
+
+
 .. index::
    single: := (colon equals)
    single: assignment expression
@@ -2178,7 +2222,7 @@ Conditional expressions
    single: else; conditional expression
 
 .. productionlist:: python-grammar
-   conditional_expression: `or_test` ["if" `or_test` "else" `expression`]
+   conditional_expression: `pipeline` ["if" `or_test` "else" `expression`]
    expression: `conditional_expression` | `lambda_expr`
 
 A conditional expression (sometimes called a "ternary operator") is an
@@ -2351,6 +2395,8 @@ precedence and have a left-to-right chaining feature as described in the
 | :keyword:`and`                                | Boolean AND                         |
 +-----------------------------------------------+-------------------------------------+
 | :keyword:`or`                                 | Boolean OR                          |
++-----------------------------------------------+-------------------------------------+
+| ``|>``                                        | Pipeline expression                 |
 +-----------------------------------------------+-------------------------------------+
 | :keyword:`if <if_expr>` -- :keyword:`!else`   | Conditional expression              |
 +-----------------------------------------------+-------------------------------------+

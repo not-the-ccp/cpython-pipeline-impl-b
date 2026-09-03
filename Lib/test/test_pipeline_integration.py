@@ -69,6 +69,27 @@ class PipelineIntegrationTests(unittest.TestCase):
         # code-object APIs erase compiler-generated spellings.
         self.assertTrue(any(name.startswith(".pipe_topic_") for name in f1.co_varnames))
 
+    def test_hidden_topic_is_readable_but_not_writable_through_frame_locals(self):
+        def gen(x):
+            result = x |> $ + 1
+            yield result, sys._getframe()
+
+        g = gen(10)
+        result, frame = next(g)
+        self.assertEqual(result, 11)
+
+        topic = next(
+            name for name in frame.f_code.co_varnames
+            if name.startswith(".pipe_topic_")
+        )
+        self.assertEqual(frame.f_locals[topic], 10)
+
+        # CO_FAST_HIDDEN does not erase the name from low-level introspection,
+        # but a FrameLocalsProxy write must not mutate the hidden fast local.
+        frame.f_locals[topic] = 999
+        self.assertEqual(frame.f_locals[topic], 10)
+        g.close()
+
     def test_pipeline_uses_only_existing_name_and_expression_opcodes(self):
         ns = {}
         exec("def f(x):\n    return x |> $ + 1\n", ns)
@@ -132,6 +153,28 @@ class PipelineIntegrationTests(unittest.TestCase):
             )],
         )
         self.assertEqual(ast.unparse(ast.fix_missing_locations(comp_filter)), "[v for v in items if (x |> $)]")
+
+    def test_tstring_synthesized_interpolation_keeps_pipeline_unparenthesized(self):
+        pipe = ast.Pipeline(
+            value=ast.Name(id="x", ctx=ast.Load()),
+            body=ast.PipeTopic(),
+        )
+        interpolation = ast.Interpolation(
+            value=pipe,
+            str=None,
+            conversion=-1,
+            format_spec=None,
+        )
+        template = ast.TemplateStr(values=[interpolation])
+        text = ast.unparse(ast.fix_missing_locations(template))
+
+        # _unparse_interpolation_value deliberately uses TEST.next(). After
+        # inserting PIPE between TEST and OR, a pipeline can appear directly in
+        # a replacement field without gratuitous parentheses.
+        self.assertIn("{x |> $}", text)
+        self.assertNotIn("{(x |> $)}", text)
+        reparsed = ast.parse(text, mode="eval")
+        self.assertIsInstance(reparsed.body, ast.TemplateStr)
 
     def test_annotation_stringifier_pipeline_precedence(self):
         # Format.STRING is produced by the compiler's limited C AST unparser,
