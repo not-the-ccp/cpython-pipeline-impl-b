@@ -9,6 +9,8 @@ import sys
 import token
 import unittest
 
+from annotationlib import Format, get_annotations
+
 
 class PipelineIntegrationTests(unittest.TestCase):
     def test_fork_identity(self):
@@ -79,6 +81,18 @@ class PipelineIntegrationTests(unittest.TestCase):
         self.assertFalse(any("PIPE" in opname for opname in opcode.opmap))
         self.assertFalse(any("PIPE" in opname for opname in opnames))
 
+    def test_captured_topic_uses_normal_cell_and_free_opcodes(self):
+        def outer(x):
+            return x |> (lambda: $)
+
+        outer_opnames = {instruction.opname for instruction in dis.get_instructions(outer)}
+        inner = outer(1)
+        inner_opnames = {instruction.opname for instruction in dis.get_instructions(inner)}
+
+        self.assertTrue({"MAKE_CELL", "STORE_DEREF"} & outer_opnames)
+        self.assertIn("LOAD_DEREF", inner_opnames)
+        self.assertFalse(any("PIPE" in opname for opname in outer_opnames | inner_opnames))
+
     def test_manual_ast_unparse_pipeline_precedence(self):
         topic = ast.PipeTopic()
         pipe = ast.Pipeline(value=ast.Name(id="x", ctx=ast.Load()), body=topic)
@@ -118,6 +132,30 @@ class PipelineIntegrationTests(unittest.TestCase):
             )],
         )
         self.assertEqual(ast.unparse(ast.fix_missing_locations(comp_filter)), "[v for v in items if (x |> $)]")
+
+    def test_annotation_stringifier_pipeline_precedence(self):
+        # Format.STRING is produced by the compiler's limited C AST unparser,
+        # not Lib/_ast_unparse.py.  These are the grammar slots that require
+        # explicit OR/disjunction precedence after inserting PR_PIPE.
+        def f(
+            body: ((x |> use($)) if cond else z),
+            test: (y if (x |> use($)) else z),
+            comp_iter: [v for v in (items |> transform($))],
+            comp_filter: [v for v in items if (x |> pred($))],
+        ):
+            pass
+
+        annotations = get_annotations(f, format=Format.STRING)
+        self.assertEqual(annotations["body"], "(x |> use($)) if cond else z")
+        self.assertEqual(annotations["test"], "y if (x |> use($)) else z")
+        self.assertEqual(
+            annotations["comp_iter"],
+            "[v for v in (items |> transform($))]",
+        )
+        self.assertEqual(
+            annotations["comp_filter"],
+            "[v for v in items if (x |> pred($))]",
+        )
 
     def test_cache_tag_isolated_and_round_trips(self):
         path = "/tmp/example.py"
