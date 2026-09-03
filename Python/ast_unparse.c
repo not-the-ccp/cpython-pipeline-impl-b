@@ -315,9 +315,9 @@ static int
 append_ast_ifexp(PyUnicodeWriter *writer, expr_ty e, int level)
 {
     APPEND_STR_IF(level > PR_TEST, "(");
-    APPEND_EXPR(e->v.IfExp.body, PR_TEST + 1);
+    APPEND_EXPR(e->v.IfExp.body, PR_OR);
     APPEND_STR(" if ");
-    APPEND_EXPR(e->v.IfExp.test, PR_TEST + 1);
+    APPEND_EXPR(e->v.IfExp.test, PR_OR);
     APPEND_STR(" else ");
     APPEND_EXPR(e->v.IfExp.orelse, PR_TEST);
     APPEND_STR_IF(level > PR_TEST, ")");
@@ -411,12 +411,12 @@ append_ast_comprehension(PyUnicodeWriter *writer, comprehension_ty gen)
     APPEND_STR(gen->is_async ? " async for " : " for ");
     APPEND_EXPR(gen->target, PR_TUPLE);
     APPEND_STR(" in ");
-    APPEND_EXPR(gen->iter, PR_TEST + 1);
+    APPEND_EXPR(gen->iter, PR_OR);
 
     if_count = asdl_seq_LEN(gen->ifs);
     for (i = 0; i < if_count; i++) {
         APPEND_STR(" if ");
-        APPEND_EXPR((expr_ty)asdl_seq_GET(gen->ifs, i), PR_TEST + 1);
+        APPEND_EXPR((expr_ty)asdl_seq_GET(gen->ifs, i), PR_OR);
     }
     return 0;
 }
@@ -725,8 +725,8 @@ append_interpolation_str(PyUnicodeWriter *writer, PyObject *str)
 static int
 append_interpolation_value(PyUnicodeWriter *writer, expr_ty e)
 {
-    /* Grammar allows PR_TUPLE, but use >PR_TEST for adding parenthesis
-       around a lambda with ':' */
+    /* Grammar allows PR_TUPLE, but use the weakest precedence immediately
+       stronger than PR_TEST so a lambda with ':' is parenthesized. */
     PyObject *temp_fv_str = expr_as_unicode(e, PR_TEST + 1);
     if (!temp_fv_str) {
         return -1;
