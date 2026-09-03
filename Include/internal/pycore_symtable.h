@@ -8,6 +8,8 @@ extern "C" {
 #  error "this header requires Py_BUILD_CORE define"
 #endif
 
+#include "pycore_c_array.h"   // _Py_c_array_t
+
 struct _mod;   // Type defined in pycore_ast.h
 
 typedef enum _block_type {
@@ -83,8 +85,10 @@ struct symtable {
     PyObject *st_private;           /* name of current class or NULL */
     _PyFutureFeatures *st_future;   /* module's future features that affect
                                        the symbol table */
-    PyObject *st_pipeline_topics;   /* list: stack of active pipeline
-                                     *       topic names */
+    _Py_c_array_t st_pipeline_topics; /* stack of borrowed PyObject * topic
+                                       * names; callers own each name while
+                                       * it is active */
+    int st_pipeline_topics_used;
     PyObject *st_pipeline_names;    /* dict: map Pipeline AST node
                                      *       addresses to hidden topic names */
     Py_ssize_t st_next_pipeline_topic; /* serial number for the next
