@@ -66,9 +66,11 @@ typedef struct {
     PyObject *u_varnames;  /* local variables */
     PyObject *u_cellvars;  /* cell variables */
     PyObject *u_freevars;  /* free variables */
-    PyObject *u_fasthidden; /* dict; keys are names that are fast-locals only
-                               temporarily within an inlined comprehension. When
-                               value is True, treat as fast-local. */
+    PyObject *u_fasthidden; /* dict; keys are compiler-hidden fast locals.
+                               True means treat the name as a hidden fast local;
+                               False records a temporarily hidden name that has
+                               been restored.  Used by inlined comprehensions
+                               and other compiler-generated locals. */
 
     Py_ssize_t u_argcount;        /* number of arguments for block */
     Py_ssize_t u_posonlyargcount;        /* number of positional only arguments for block */
@@ -131,6 +133,7 @@ _PyCompile_FBlockInfo *_PyCompile_TopFBlock(struct _PyCompiler *c);
 int _PyCompile_PushPipelineTopic(struct _PyCompiler *c, PyObject *name);
 void _PyCompile_PopPipelineTopic(struct _PyCompiler *c);
 PyObject *_PyCompile_CurrentPipelineTopic(struct _PyCompiler *c);
+int _PyCompile_MarkPipelineTopicHidden(struct _PyCompiler *c, PyObject *name);
 
 int _PyCompile_EnterScope(struct _PyCompiler *c, identifier name, int scope_type,
                           void *key, int lineno, PyObject *private,
