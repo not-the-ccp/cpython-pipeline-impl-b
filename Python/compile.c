@@ -104,7 +104,8 @@ typedef struct _PyCompiler {
                                   * (including instructions for nested code objects)
                                   */
     int c_disable_warning;
-    PyObject *c_pipeline_topics; /* Python list: stack of active pipeline topic names */
+    _Py_c_array_t c_pipeline_topics; /* stack of borrowed active topic names */
+    int c_pipeline_topics_used;
 } compiler;
 
 static int
@@ -123,10 +124,10 @@ compiler_setup(compiler *c, mod_ty mod, PyObject *filename,
         return ERROR;
     }
 
-    c->c_pipeline_topics = PyList_New(0);
-    if (!c->c_pipeline_topics) {
+    if (_Py_CArray_Init(&c->c_pipeline_topics, sizeof(PyObject *), 8) < 0) {
         return ERROR;
     }
+    c->c_pipeline_topics_used = 0;
 
     c->c_filename = Py_NewRef(filename);
     if (!_PyFuture_FromAST(mod, filename, &c->c_future)) {
@@ -164,34 +165,42 @@ compiler_free(compiler *c)
     Py_XDECREF(c->c_filename);
     Py_XDECREF(c->c_const_cache);
     Py_XDECREF(c->c_stack);
-    Py_XDECREF(c->c_pipeline_topics);
+    assert(c->c_pipeline_topics_used == 0);
+    _Py_CArray_Fini(&c->c_pipeline_topics);
     PyMem_Free(c);
 }
 
 int
 _PyCompile_PushPipelineTopic(struct _PyCompiler *c, PyObject *name)
 {
-    return PyList_Append(c->c_pipeline_topics, name);
+    assert(name != NULL);
+    if (_PyST_IsFunctionLike(c->u->u_ste)) {
+        if (PyDict_SetItem(c->u->u_metadata.u_fasthidden, name, Py_True) < 0) {
+            return ERROR;
+        }
+    }
+    if (_Py_CArray_EnsureCapacity(&c->c_pipeline_topics,
+                                  c->c_pipeline_topics_used) < 0) {
+        return ERROR;
+    }
+    ((PyObject **)c->c_pipeline_topics.array)[c->c_pipeline_topics_used] = name;
+    c->c_pipeline_topics_used++;
+    return SUCCESS;
 }
 
 void
 _PyCompile_PopPipelineTopic(struct _PyCompiler *c)
 {
-    Py_ssize_t size = PyList_GET_SIZE(c->c_pipeline_topics);
-    if (size == 0) {
-        Py_FatalError("pipeline topic stack underflow");
-    }
-    if (PyList_SetSlice(c->c_pipeline_topics, size - 1, size, NULL) < 0) {
-        Py_FatalError("cannot pop pipeline topic");
-    }
+    assert(c->c_pipeline_topics_used > 0);
+    c->c_pipeline_topics_used--;
+    ((PyObject **)c->c_pipeline_topics.array)[c->c_pipeline_topics_used] = NULL;
 }
 
 PyObject *
 _PyCompile_CurrentPipelineTopic(struct _PyCompiler *c)
 {
-    Py_ssize_t size = PyList_GET_SIZE(c->c_pipeline_topics);
-    assert(size > 0);
-    return PyList_GET_ITEM(c->c_pipeline_topics, size - 1);
+    assert(c->c_pipeline_topics_used > 0);
+    return ((PyObject **)c->c_pipeline_topics.array)[c->c_pipeline_topics_used - 1];
 }
 
 static compiler*
