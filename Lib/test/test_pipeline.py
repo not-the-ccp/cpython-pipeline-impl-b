@@ -8,10 +8,9 @@ hidden topic ``$`` for the duration of its body::
 
 - The value is evaluated exactly once, and completes before the body
   starts.
-- ``$`` is an expression atom that refers to the current pipeline's
-  topic.  It is not a keyword: outside a pipeline body, ``$`` keeps
-  meaning exactly what it has always meant in Python source (an
-  identifier, subject to the ordinary identifier rules).
+- ``$`` is a dedicated exact punctuation/operator token and expression
+  atom that refers to the current pipeline topic.  It is neither an
+  identifier nor a keyword, and it is invalid outside a pipeline body.
 - Every pipeline body must lexically reference ``$`` at least once,
   directly or inside a nested function, comprehension, or generator
   expression defined in the body.
@@ -111,7 +110,7 @@ class PipelineSemanticsTestCase(unittest.TestCase):
         # A bare disjunction is a legal pipeline value: the pipe binds
         # looser than 'or'.
         self.assertEqual((1 or 2) |> $ * 10, 10)
-        # ... and the body is a full expression:
+        # ... and the body is a full disjunction:
         self.assertEqual(1 |> $ or "fallback", 1)
         # Comparison binds tighter than the pipe on the body side.
         self.assertEqual(1 |> $ + 1 == 2, True)

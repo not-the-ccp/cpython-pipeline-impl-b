@@ -49,7 +49,7 @@
 "assignment expression within a comprehension cannot be used in a type alias"
 
 #define NAMED_EXPR_COMP_IN_TYPEPARAM \
-"assignment expression cannot be used within the definition of a generic"
+"assignment expression within a comprehension cannot be used within the definition of a generic"
 
 #define NAMED_EXPR_COMP_CONFLICT \
 "assignment expression cannot rebind comprehension iteration variable '%U'"
@@ -1144,7 +1144,7 @@ error:
 
    Arguments:
    ste -- current symtable entry (input/output)
-   bound -- set of variables bound in enclosing scopes (input)
+   bound -- set of variables bound in enclosing scopes (input).  bound
        is NULL for module blocks.
    free -- set of free variables in enclosed scopes (output)
    globals -- set of declared global variables in enclosing scopes (input)

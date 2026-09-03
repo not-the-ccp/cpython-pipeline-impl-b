@@ -3630,7 +3630,7 @@ make_version_info(PyThreadState *tstate)
 const char *_PySys_ImplName = NAME;
 #define MAJOR Py_STRINGIFY(PY_MAJOR_VERSION)
 #define MINOR Py_STRINGIFY(PY_MINOR_VERSION)
-#define TAG NAME "-" MAJOR MINOR
+#define TAG NAME "-" MAJOR MINOR "-pipeline"
 const char *_PySys_ImplCacheTag = TAG;
 #undef NAME
 #undef MAJOR
@@ -3662,6 +3662,10 @@ make_impl_info(PyObject *version_info)
         goto error;
     res = PyDict_SetItemString(impl_info, "cache_tag", value);
     Py_DECREF(value);
+    if (res < 0)
+        goto error;
+
+    res = PyDict_SetItemString(impl_info, "_pipeline_fork", Py_True);
     if (res < 0)
         goto error;
 

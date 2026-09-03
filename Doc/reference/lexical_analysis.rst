@@ -502,8 +502,8 @@ characters:
    .. note::
 
       The name ``_`` is often used in conjunction with internationalization;
-      refer to the documentation on :mod:`gettext` for more information on this
-      convention.
+      refer to the documentation for the :mod:`gettext` module for more
+      information on this convention.
 
       It is also commonly used for unused variables.
 
@@ -603,7 +603,7 @@ included in the :mod:`unicodedata` module.
 .. _UAX-31: https://www.unicode.org/reports/tr31/
 .. _PropList.txt: https://www.unicode.org/Public/16.0.0/ucd/PropList.txt
 .. _DerivedCoreProperties.txt: https://www.unicode.org/Public/16.0.0/ucd/DerivedCoreProperties.txt
-.. _normalization form: https://unicode.org/reports/tr15/#Norm_Forms
+.. _normalization form: https://www.unicode.org/reports/tr15/#Norm_Forms
 
 .. seealso::
 
@@ -843,7 +843,7 @@ or parentheses and :ref:`string literal concatenation <string-concatenation>`.
 .. _string-escape-escaped-char:
 
 Escaped characters
-^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^
 
 To include a backslash in a non-:ref:`raw <raw-strings>` Python string
 literal, it must be doubled. The ``\\`` escape sequence denotes a single
@@ -886,7 +886,7 @@ In a string literal, it means a Unicode character with the given value.
 .. _string-escape-hex:
 
 Hexadecimal character
-^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^
 
 The sequence :samp:`\\x{hh}` denotes a *character* with the hex (base 16)
 value *hh*::
