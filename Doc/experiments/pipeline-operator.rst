@@ -163,22 +163,22 @@ handle ordinary structure/traversal.
 
 Both the Python and limited C unparsers have a PIPE precedence level.  Grammar
 slots that specifically accept a ``disjunction`` (for example conditional
-body/test and comprehension iterable/filter positions) must request OR
-precedence so a manually constructed Pipeline AST is parenthesized there.
+body/test and comprehension iterable/filter positions) request OR precedence
+so a manually constructed Pipeline AST is parenthesized there.
 
 Compiler topic stacks
 ~~~~~~~~~~~~~~~~~~~~~
 
 The compiler and symbol-table **active topic stacks are compile-time
-bookkeeping only**.  The final implementation should use raw ``_Py_c_array_t``
-stacks of borrowed ``PyObject *`` generated-name pointers rather than Python
-``list`` objects.  The caller already owns a strong name reference throughout
-recursive body traversal, so the stack need not own another reference.
+bookkeeping only**.  They use raw ``_Py_c_array_t`` stacks of borrowed
+``PyObject *`` generated-name pointers rather than Python ``list`` objects.
+The caller already owns a strong name reference throughout recursive body
+traversal, so the stack does not own another reference.
 
-That gives the desired error model: capacity growth can fail before push,
-successful push is a raw pointer store, current-topic lookup is a borrowed
-pointer read, and pop is an infallible decrement/raw clear with no allocation
-or decref.  There is no runtime topic stack.
+Capacity growth can fail before push; successful push is a raw pointer store,
+current-topic lookup is a borrowed pointer read, and pop is an infallible
+decrement/raw clear with no allocation or decref.  There is no runtime topic
+stack.
 
 Symbol table and code generation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -197,10 +197,10 @@ and FREE opcode families only; there is no ``PIPE`` opcode.
 Hidden-local metadata
 ~~~~~~~~~~~~~~~~~~~~~
 
-For function-like compiler units, generated pipeline locals should be marked
-through CPython's existing ``u_fasthidden`` -> ``CO_FAST_HIDDEN`` machinery.
-That means tooling which honors the hidden-local bit does not treat the
-compiler temporary exactly like a normal user-writable fast local.
+For function-like compiler units, generated pipeline locals are marked through
+CPython's existing ``u_fasthidden`` -> ``CO_FAST_HIDDEN`` machinery.  Tooling
+which honors the hidden-local bit therefore does not treat the compiler
+temporary exactly like a normal user-writable fast local.
 
 This bit does **not** make the spelling disappear from all introspection.  A
 locals-plus entry can simultaneously be ``CO_FAST_LOCAL | CO_FAST_HIDDEN``
@@ -271,11 +271,12 @@ or restores developer work and no hosted CI is required.
 Testing and demo
 ----------------
 
-``Lib/test/test_pipeline.py`` is the primary feature suite.  Adjacent CPython
-tests for AST, annotation stringification, symbol tables, compilation,
-disassembly, code/frame metadata, tokens/tokenization, syntax/grammar,
-f-strings, t-strings, and pegen are part of the focused verifier because the
-feature crosses all of those frontend surfaces.
+``Lib/test/test_pipeline.py`` and ``Lib/test/test_pipeline_integration.py`` are
+the fork-specific feature/integration suites.  Adjacent CPython tests for AST,
+annotation stringification, symbol tables, compilation, disassembly, code/frame
+metadata, tokens/tokenization, syntax/grammar, f-strings, t-strings, and pegen
+are part of the focused verifier because the feature crosses all of those
+frontend surfaces.
 
 ``Demo/pipeline_demo.py`` shows the operator applied to realistic code.  The
 final integration gate additionally requires deterministic regeneration, a
