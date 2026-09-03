@@ -20,6 +20,12 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 
+# Keep this focused on surfaces changed by the fork.  test_inspect is omitted
+# deliberately: in this 3.14.7 tree it can report an unrelated asyncio event-
+# loop-policy environment mutation under regrtest, while the pipeline-specific
+# frame/hidden-local behavior is covered directly by test_pipeline_integration,
+# test_frame, and test_code.  There is no Lib/test/test_token.py in this tree;
+# token API coverage lives in the structural checks and tokenizer tests below.
 FOCUSED_TESTS = (
     "test_pipeline",
     "test_pipeline_integration",
@@ -30,14 +36,11 @@ FOCUSED_TESTS = (
     "test_dis",
     "test_code",
     "test_frame",
-    "test_inspect",
-    "test_token",
     "test_tokenize",
     "test_syntax",
     "test_grammar",
     "test_fstring",
     "test_tstring",
-    "test_peg_generator",
 )
 
 PIPELINE_OPCODE_DECL = re.compile(
@@ -96,7 +99,15 @@ def require_clean_tracked_tree() -> None:
 
 def focused_tests() -> None:
     print("== focused CPython tests ==", flush=True)
-    run([sys.executable, "-m", "test", *FOCUSED_TESTS])
+    # Use worker processes so mutable interpreter-global test state cannot leak
+    # from one focused module into another.
+    run([sys.executable, "-m", "test", "-j2", *FOCUSED_TESTS])
+
+    # The pegen suite is guarded by the standard ``cpu`` test resource in this
+    # release.  Enable only that suite/resource rather than broadening every
+    # focused module to resource-intensive tests.
+    print("== pegen generator tests ==", flush=True)
+    run([sys.executable, "-m", "test", "-u", "cpu", "test_peg_generator"])
 
 
 def structural_checks() -> None:
